@@ -3,196 +3,153 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>پنل هوشمند ربات‌ساز تلگرام</title>
+    <title>پنل مدیریت ربات تلگرام | نسخه دائمی</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100;400;700;900&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Vazirmatn', sans-serif; background-color: #f0f2f5; }
+        body { font-family: 'Vazirmatn', sans-serif; background-color: #f8fafc; }
         .ltr { direction: ltr; }
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="module">
-        import React, { useState, useEffect } from 'https://esm.sh/react@18.2.0';
+        import React, { useState, useEffect, useRef } from 'https://esm.sh/react@18.2.0';
         import ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
 
         const App = () => {
-            const [token, setToken] = useState('');
-            const [botInfo, setBotInfo] = useState(null);
-            const [loading, setLoading] = useState(false);
-            const [error, setError] = useState('');
-            const [status, setStatus] = useState('offline');
-            const [commands, setCommands] = useState([
-                { id: 1, cmd: '/start', response: 'سلام! ربات شما با موفقیت فعال شد.' },
-                { id: 2, cmd: '/help', response: 'من یک ربات هوشمند هستم که توسط پنل شما مدیریت می‌شوم.' }
+            const [token, setToken] = useState(localStorage.getItem('bot_token') || '');
+            const [commands, setCommands] = useState(JSON.parse(localStorage.getItem('bot_commands')) || [
+                { id: 1, cmd: '/start', response: 'سلام! این ربات ۲۴ ساعته فعال است.' }
             ]);
-            const [newCmd, setNewCmd] = useState({ cmd: '', response: '' });
+            const [webhookUrl, setWebhookUrl] = useState(localStorage.getItem('webhook_url') || '');
+            const [status, setStatus] = useState('offline');
             const [logs, setLogs] = useState([]);
+            const [newCmd, setNewCmd] = useState({ cmd: '', response: '' });
+
+            useEffect(() => {
+                localStorage.setItem('bot_token', token);
+                localStorage.setItem('bot_commands', JSON.stringify(commands));
+                localStorage.setItem('webhook_url', webhookUrl);
+            }, [token, commands, webhookUrl]);
 
             const addLog = (msg) => {
                 const time = new Date().toLocaleTimeString('fa-IR');
-                setLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 15));
+                setLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 20));
             };
 
-            const startBot = async () => {
-                if (!token) {
-                    setError('لطفاً ابتدا توکن ربات را وارد کنید');
-                    return;
-                }
-                setLoading(true);
-                setError('');
-                setStatus('connecting');
-                addLog('در حال تلاش برای اتصال به سرورهای تلگرام...');
-
+            // متد فعال‌سازی Webhook (برای کارکرد دائمی)
+            const setupWebhook = async () => {
+                if (!token || !webhookUrl) return alert("توکن و آدرس API ورسل را وارد کنید");
+                
+                addLog("در حال تنظیم Webhook برای کارکرد دائمی...");
                 try {
-                    const response = await fetch(`https://api.telegram.org/bot${token}/getMe`);
-                    const data = await response.json();
-                    
+                    const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook?url=${webhookUrl}`);
+                    const data = await res.json();
                     if (data.ok) {
-                        setBotInfo(data.result);
-                        setStatus('online');
-                        addLog(`اتصال برقرار شد: @${data.result.username} آنلاین است.`);
+                        addLog("✅ وب‌هوک با موفقیت ست شد. ربات حالا ۲۴ ساعته پاسخ می‌دهد.");
+                        setStatus('webhook_active');
                     } else {
-                        setStatus('offline');
-                        setError('توکن اشتباه است یا دسترسی به تلگرام محدود شده است.');
-                        addLog('خطا: توکن نامعتبر.');
+                        addLog("❌ خطا در تنظیم وب‌هوک: " + data.description);
                     }
-                } catch (err) {
-                    setStatus('offline');
-                    setError('خطا در شبکه! مطمئن شوید فیلترشکن شما روشن است.');
-                    addLog('خطا در برقراری ارتباط با API.');
-                } finally {
-                    setLoading(false);
+                } catch (e) {
+                    addLog("❌ خطا در برقراری ارتباط.");
                 }
             };
 
-            const stopBot = () => {
+            const deleteWebhook = async () => {
+                await fetch(`https://api.telegram.org/bot${token}/deleteWebhook`);
+                addLog("وب‌هوک حذف شد. ربات به حالت دستی برگشت.");
                 setStatus('offline');
-                setBotInfo(null);
-                addLog('ربات خاموش شد.');
             };
 
-            const addCommand = () => {
-                if (newCmd.cmd && newCmd.response) {
-                    const formattedCmd = newCmd.cmd.startsWith('/') ? newCmd.cmd : `/${newCmd.cmd}`;
-                    setCommands([...commands, { ...newCmd, cmd: formattedCmd, id: Date.now() }]);
-                    setNewCmd({ cmd: '', response: '' });
-                    addLog(`دستور جدید اضافه شد: ${formattedCmd}`);
-                }
-            };
+            return React.createElement('div', { className: 'max-w-6xl mx-auto p-4 md:p-8' }, [
+                // Header
+                React.createElement('header', { className: 'flex justify-between items-center mb-8 bg-white p-6 rounded-2xl shadow-sm border' }, [
+                    React.createElement('div', { className: 'flex items-center gap-3' }, [
+                        React.createElement('div', { className: 'bg-indigo-600 p-2.5 rounded-xl text-white' }, React.createElement('i', { 'data-lucide': 'globe' })),
+                        React.createElement('h1', { className: 'text-2xl font-black text-slate-800' }, 'پنل ربات دائمی (Vercel Cloud)')
+                    ]),
+                    React.createElement('div', { className: 'text-sm font-bold ' + (status === 'webhook_active' ? 'text-green-600' : 'text-slate-400') }, 
+                        status === 'webhook_active' ? '● وضعیت: فعال ابری (۲۴ ساعته)' : '○ وضعیت: آفلاین'
+                    )
+                ]),
 
-            const deleteCommand = (id) => {
-                const target = commands.find(c => c.id === id);
-                setCommands(commands.filter(c => c.id !== id));
-                addLog(`دستور حذف شد: ${target?.cmd}`);
-            };
-
-            return React.createElement('div', { className: 'min-h-screen' }, [
-                // Navbar
-                React.createElement('nav', { className: 'bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-50 shadow-sm' }, 
-                    React.createElement('div', { className: 'max-w-6xl mx-auto flex justify-between items-center' }, [
-                        React.createElement('div', { className: 'flex items-center gap-3' }, [
-                            React.createElement('div', { className: 'bg-blue-600 p-2 rounded-lg text-white' }, React.createElement('i', { 'data-lucide': 'bot' })),
-                            React.createElement('h1', { className: 'text-xl font-black text-slate-800' }, 'پنل هوشمند ربات‌ساز')
-                        ]),
-                        React.createElement('div', { className: 'flex items-center gap-4' }, 
-                            status === 'online' ? 
-                            React.createElement('div', { className: 'flex items-center gap-2 bg-green-50 text-green-700 px-3 py-1.5 rounded-full text-sm font-bold border border-green-200' }, [
-                                React.createElement('span', { className: 'w-2 h-2 bg-green-500 rounded-full animate-ping' }),
-                                'وضعیت: آنلاین'
-                            ]) : 
-                            React.createElement('div', { className: 'flex items-center gap-2 bg-slate-100 text-slate-500 px-3 py-1.5 rounded-full text-sm font-bold' }, 'وضعیت: آفلاین')
-                        )
-                    ])
-                ),
-
-                // Main Content
-                React.createElement('main', { className: 'max-w-6xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-6' }, [
-                    // Sidebar
+                React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-3 gap-8' }, [
+                    // Right Col
                     React.createElement('div', { className: 'space-y-6' }, [
-                        React.createElement('div', { className: 'bg-white rounded-2xl shadow-sm p-6 border border-slate-200' }, [
-                            React.createElement('h3', { className: 'font-bold text-slate-800 mb-4 flex items-center gap-2' }, 'تنظیمات توکن'),
+                        // Webhook Setup
+                        React.createElement('div', { className: 'bg-white p-6 rounded-2xl border shadow-sm' }, [
+                            React.createElement('h3', { className: 'font-bold mb-4 flex items-center gap-2' }, 'تنظیمات سرور همیشگی'),
+                            React.createElement('p', { className: 'text-xs text-slate-500 mb-4' }, 'آدرس Endpoint ورسل خود را در اینجا وارد کنید تا ربات ۲۴ ساعته شود.'),
                             React.createElement('input', { 
-                                className: 'w-full p-3 bg-slate-50 border border-slate-200 rounded-xl ltr text-left focus:ring-2 focus:ring-blue-500 outline-none mb-4',
-                                placeholder: '123456789:ABC...',
+                                placeholder: 'توکن ربات',
+                                className: 'w-full p-3 bg-slate-50 border rounded-xl ltr text-left mb-3 outline-none focus:ring-2 focus:ring-indigo-500',
                                 value: token,
-                                onChange: (e) => setToken(e.target.value),
-                                disabled: status === 'online'
+                                onChange: e => setToken(e.target.value)
                             }),
-                            status === 'offline' ? 
-                            React.createElement('button', { 
-                                onClick: startBot, 
-                                disabled: loading,
-                                className: 'w-full bg-blue-600 text-white py-3 rounded-xl font-bold transition-all hover:bg-blue-700 disabled:opacity-50' 
-                            }, loading ? 'در حال اتصال...' : 'فعال‌سازی ربات') :
-                            React.createElement('button', { 
-                                onClick: stopBot,
-                                className: 'w-full bg-red-50 text-red-600 py-3 rounded-xl font-bold border border-red-200 hover:bg-red-100' 
-                            }, 'متوقف کردن')
+                            React.createElement('input', { 
+                                placeholder: 'https://your-app.vercel.app/api/bot',
+                                className: 'w-full p-3 bg-slate-50 border rounded-xl ltr text-left mb-4 outline-none focus:ring-2 focus:ring-indigo-500',
+                                value: webhookUrl,
+                                onChange: e => setWebhookUrl(e.target.value)
+                            }),
+                            status !== 'webhook_active' ? 
+                            React.createElement('button', { onClick: setupWebhook, className: 'w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700' }, 'فعال‌سازی حالت ابری') :
+                            React.createElement('button', { onClick: deleteWebhook, className: 'w-full bg-red-50 text-red-600 py-3 rounded-xl font-bold border border-red-100' }, 'غیرفعال‌سازی')
                         ]),
-                        React.createElement('div', { className: 'bg-slate-900 rounded-2xl p-6 text-slate-300' }, [
-                            React.createElement('h3', { className: 'font-bold text-white mb-4 text-sm' }, 'گزارشات زنده'),
-                            React.createElement('div', { className: 'space-y-2 font-mono text-[10px] h-40 overflow-y-auto ltr text-left custom-scrollbar' }, 
-                                logs.length > 0 ? logs.map((log, i) => React.createElement('div', { key: i, className: 'border-b border-slate-800 pb-1 text-slate-400' }, log)) : 'در انتظار فعالیت...'
+
+                        // Logs
+                        React.createElement('div', { className: 'bg-slate-900 rounded-2xl p-5' }, [
+                            React.createElement('h3', { className: 'text-slate-400 text-[10px] mb-3 uppercase' }, 'وضعیت سیستم'),
+                            React.createElement('div', { className: 'space-y-2 font-mono text-[11px] h-40 overflow-y-auto ltr text-left custom-scrollbar text-indigo-400' }, 
+                                logs.map((log, i) => React.createElement('div', { key: i }, log))
                             )
                         ])
                     ]),
 
-                    // Dashboard
+                    // Left Col
                     React.createElement('div', { className: 'lg:col-span-2 space-y-6' }, [
-                        // Stats
-                        React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-3 gap-4' }, [
-                            ['دستورات', commands.length, 'message-square'],
-                            ['کاربران', status === 'online' ? '۱۲' : '۰', 'users'],
-                            ['سرور', status === 'online' ? '۰.۲٪' : '۰٪', 'cpu']
-                        ].map(([label, val, icon]) => 
-                            React.createElement('div', { key: label, className: 'bg-white p-4 rounded-2xl border border-slate-200 flex items-center gap-4' }, [
-                                React.createElement('div', { className: 'bg-blue-50 p-3 rounded-xl text-blue-600' }, React.createElement('i', { 'data-lucide': icon })),
-                                React.createElement('div', null, [
-                                    React.createElement('div', { className: 'text-xs text-slate-500' }, label),
-                                    React.createElement('div', { className: 'text-xl font-black' }, val)
-                                ])
-                            ])
-                        )),
+                        React.createElement('div', { className: 'bg-white p-6 rounded-2xl border shadow-sm' }, [
+                            React.createElement('h3', { className: 'font-bold mb-4' }, 'تعریف دستورات ربات'),
+                            React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-3 mb-4' }, [
+                                React.createElement('input', { 
+                                    placeholder: 'دستور (مثلاً /price)',
+                                    className: 'p-3 bg-slate-50 border rounded-xl ltr outline-none',
+                                    value: newCmd.cmd,
+                                    onChange: e => setNewCmd({...newCmd, cmd: e.target.value})
+                                }),
+                                React.createElement('input', { 
+                                    placeholder: 'پاسخ ربات...',
+                                    className: 'p-3 bg-slate-50 border rounded-xl outline-none',
+                                    value: newCmd.response,
+                                    onChange: e => setNewCmd({...newCmd, response: e.target.value})
+                                })
+                            ]),
+                            React.createElement('button', { 
+                                onClick: () => {
+                                    if(newCmd.cmd && newCmd.response) {
+                                        setCommands([{ ...newCmd, id: Date.now() }, ...commands]);
+                                        setNewCmd({ cmd: '', response: '' });
+                                    }
+                                },
+                                className: 'w-full bg-slate-800 text-white py-3 rounded-xl font-bold'
+                            }, 'ثبت دستور جدید')
+                        ]),
 
-                        // Manager
-                        React.createElement('div', { className: 'bg-white rounded-2xl border border-slate-200 overflow-hidden' }, [
-                            React.createElement('div', { className: 'p-6 border-b border-slate-100 font-bold' }, 'مدیریت پاسخ‌های خودکار'),
-                            React.createElement('div', { className: 'p-6 space-y-6' }, [
-                                React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-4' }, [
-                                    React.createElement('input', { 
-                                        placeholder: 'دستور (مثلاً /start)',
-                                        className: 'p-2.5 bg-slate-50 border rounded-lg ltr outline-none',
-                                        value: newCmd.cmd,
-                                        onChange: e => setNewCmd({...newCmd, cmd: e.target.value})
-                                    }),
-                                    React.createElement('input', { 
-                                        placeholder: 'پاسخ ربات...',
-                                        className: 'p-2.5 bg-slate-50 border rounded-lg outline-none',
-                                        value: newCmd.response,
-                                        onChange: e => setNewCmd({...newCmd, response: e.target.value})
-                                    }),
-                                    React.createElement('button', { 
-                                        onClick: addCommand,
-                                        className: 'md:col-span-2 bg-slate-800 text-white py-2.5 rounded-lg font-bold hover:bg-slate-900 transition-all'
-                                    }, 'اضافه کردن به دیتابیس')
+                        React.createElement('div', { className: 'space-y-3' }, 
+                            commands.map(c => React.createElement('div', { key: c.id, className: 'bg-white p-4 rounded-xl border flex justify-between items-center shadow-sm' }, [
+                                React.createElement('div', null, [
+                                    React.createElement('span', { className: 'font-mono text-indigo-600 font-bold ml-4' }, c.cmd),
+                                    React.createElement('span', { className: 'text-slate-600 text-sm' }, c.response)
                                 ]),
-                                React.createElement('div', { className: 'space-y-3' }, 
-                                    commands.map(c => React.createElement('div', { key: c.id, className: 'flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100' }, [
-                                        React.createElement('div', { className: 'flex items-center gap-4' }, [
-                                            React.createElement('div', { className: 'bg-white px-3 py-1 rounded shadow-sm font-mono text-blue-600 text-sm font-bold ltr' }, c.cmd),
-                                            React.createElement('div', { className: 'text-slate-600 text-sm' }, c.response)
-                                        ]),
-                                        React.createElement('button', { onClick: () => deleteCommand(c.id), className: 'text-slate-300 hover:text-red-500' }, React.createElement('i', { 'data-lucide': 'trash-2', size: 18 }))
-                                    ]))
-                                )
-                            ])
-                        ])
+                                React.createElement('button', { onClick: () => setCommands(commands.filter(x => x.id !== c.id)), className: 'text-slate-300 hover:text-red-500' }, React.createElement('i', { 'data-lucide': 'trash-2', size: 18 }))
+                            ]))
+                        )
                     ])
                 ])
             ]);
@@ -200,8 +157,6 @@
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(React.createElement(App));
-        
-        // Initialize Icons
         setTimeout(() => lucide.createIcons(), 500);
     </script>
 </body>
